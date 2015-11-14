@@ -1,60 +1,79 @@
+from __future__ import division
+import math
+
+def _split_decimal_part(n):
+    """Split the input into its integral part and its decimal part.
+
+    Parameters:
+        n (str/int/float): Integer to convert.
+
+    >>> Movement._split_decimal_part('15.35321')
+    (15, 35321)
+    """
+    n = str(n)
+    try:
+        integral, decimal = n.split('.')
+    except ValueError:
+        return int(n), 0
+    else:
+        return int(integral) if integral else 0, int(decimal) if decimal else 0
+            
 class Movement(object):
     """This was built to allow large coordinates to be stored without
     causing any floating point precision errors.
     It is faster than the decimal module, especially with processing
     large amounts of small movements.
-    
+
     It works by breaking down the coordinates into 'blocks', where each
     new block is the squared amount of the previous one.
     The method is very similar to the base number system, in which a
     block size of 10 will split 235.9 into [5.9, 3, 2].
-    
+
     A large block size is faster than a small one, though the precision
     will be worse. At 16 digits, Python can't store any more decimals,
     so definitely keep it under that.
     """
-    
+
     BLOCK_SIZE = 65535
     COORDINATES = range(3)
-    
+
     def __init__(self, x=0, y=0, z=0, block_size=None):
         """Convert the starting coordinates into the format accepted
         by the class.
-        
+
         >>> m = Movement('15',
         ...              '-31564.99933425584842',
         ...              '1699446367870005.2')
         >>> m.player_loc
         [[15.0], [-31564.99933425585], [38640.2, 17514, 2485, 6]]
-        
+
         >>> print m
         (15.0, -31564.9993343, 1699446367870005.2)
         """
-        
+
         #Set a new block size if needed
         if block_size is not None:
             self.BLOCK_SIZE = block_size
-            
+
         #Store the initial coordinates
-        self.player_loc = [self.calculate(self._get_integer(i),
-                                          self._get_decimal(i))
+        self.player_loc = [self.calculate(*_split_decimal_part(i))
                            for i in map(str, (x, y, z))]
-    
-    
+
+
     def __repr__(self):
         """This needs improving, currently it just converts back to
         the absolute coordinates."""
         return 'Movement({}, {}, {})'.format(*self._convert_to_world())
-    
-    
+
+
     def __str__(self):
         """Print the absolute coordinates."""
         return str(tuple(self._convert_to_world())).replace("'", "")
-    
-    
+
+
     def __getitem__(self, i):
         """Return an absolute value for X, Y or Z.
-        
+
         Parameters:
             i (int): Index of coordinate.
         """
@@ -62,59 +81,32 @@ class Movement(object):
             return self._convert_to_world()[i]
         except IndexError:
             MovementError.index_error_coordinate()
-    
-    
+
+
     def __setitem__(self, i, n):
         """Set an absolute value for X, Y or Z.
-        
+
         Parameters:
             i (int): Index of coordinate.
-            
+
             n (int/float): New value to set.
         """
         n = str(n)
         try:
-            self.player_loc[i] = self.calculate(self._get_integer(n),
-                                                self._get_decimal(n))
+            self.player_loc[i] = self.calculate(*_split_decimal_part(n))
         except IndexError:
             MovementError.index_error_coordinate()
-            
-            
-    @classmethod
-    def _get_integer(self, n):
-        """Convert the input to an integer.
-        
-        Parameters:
-            n (str): Integer to convert.
-            
-        >>> Movement._get_integer('15.35321')
-        15
-        """
-        return int(n) if '.' not in n else int(n.split('.')[0])
-    
-    
-    @classmethod
-    def _get_decimal(self, n):
-        """Get the decimal number from the input.
-        
-        Parameters:
-            n (str): Decimal to convert.
-            
-        >>> Movement._get_decimal('15.35321')
-        35321
-        """
-        return 0 if '.' not in n else int(n.split('.')[1])
-    
-    
+
+
     def calculate(self, amount, decimal=0):
         """Convert the coordinate into a block.
-        
+
         Parameters:
             amount (int/str): Total value without any decimals.
-            
+
             decimal (int, optional): The decimal value as an integer
                 without the leading '0.'.
-        
+
         >>> Movement().calculate(128)
         [128.0]
         >>> Movement().calculate(128, 5176)
@@ -124,93 +116,73 @@ class Movement(object):
         >>> Movement().calculate(4294836225)
         [0.0, 0, 1]
         """
-        coordinate = []
         amount = int(amount)
-        negative = amount < 0
-        multiplier = int('-1'[not negative:])
-        
-        if negative:
-            amount *= -1
-        
-        while amount > self.BLOCK_SIZE - 1:
-            remainder = amount % self.BLOCK_SIZE
-            amount = (amount - remainder) / self.BLOCK_SIZE
+        multiplier = int(math.copysign(1, amount))
+        amount *= multiplier
+
+        coordinate = []
+        while amount >= self.BLOCK_SIZE - 1:
+            amount, remainder = divmod(amount, self.BLOCK_SIZE)
             coordinate.append(int(remainder * multiplier))
         coordinate.append(int(amount * multiplier))
-        
-        decimal = float('0.' + str(int(decimal)))
-        coordinate[0] += decimal * int('-1'[not coordinate[0] < 0:])
-        
+
+        decimal = float('0.{}'.format(decimal))
+        coordinate[0] += decimal * multiplier
+
         return coordinate
 
 
     def _move(self, direction, amount, final_run=False):
         """Add the coordinate to a block.
-        
+
         Parameters:
             direction (int): Represents X, Y, or Z as a number.
-            
+
             amount (int/float): Amount to add or subtract from the
             coordinate.
-        
+
         >>> m = Movement(135, 426.42, -1499941.5002)
         >>> print m
         (135.0, 426.42, -1499941.5002)
-        
+
         >>> m.move(100, -5133.100532, 5)
         >>> print m
         (235.0, -4706.680532, -1499936.5002)
         """
         
-        #Fix to keep decimals on large numbers
-        if not final_run and amount > self.BLOCK_SIZE:
-            decimal = self.player_loc[direction][0] % 1
-            if '.' in str(amount):
-                decimal += float('0.' + str(amount).split('.')[1])
-            self.player_loc[direction][0] += int(amount)
-        else:
-            self.player_loc[direction][0] += amount
+        axis = self.player_loc[direction]
         
-        #Recalculate and add blocks if needed
-        i = 0
-        while i < len(self.player_loc[direction]):
-            
-            stop = True
-            current_block = self.player_loc[direction][i]
-            while not -self.BLOCK_SIZE < current_block < self.BLOCK_SIZE:
-                stop = False
-                
-                remainder = current_block % self.BLOCK_SIZE
-                new_addition = int(current_block - remainder) / self.BLOCK_SIZE
-                if i:
-                    remainder = int(remainder)
-                self.player_loc[direction][i] = remainder
-                
-                try:
-                    self.player_loc[direction][i + 1] += new_addition
-                except IndexError:
-                    self.player_loc[direction].append(new_addition)
-            
-            #Break execution if higher blocks are not edited
-            if stop:
-                break
-                
-            i += 1
+        for i, amount in enumerate(self.calculate(*_split_decimal_part(amount))):
+            try:
+                axis[i] += amount
+            except IndexError:
+                axis.append(amount)
         
-        #Add the final decimals if a large number was input
-        try:
-            self._move(direction, decimal, final_run=True)
-        except UnboundLocalError:
-            pass
-        
+        overflow = 0
+        for i, amount in enumerate(axis):
+            amount += overflow
+            negative = math.copysign(1, amount)
+            overflow, remainder = [n * negative for n in divmod(abs(amount), self.BLOCK_SIZE)]
+            self.player_loc[direction][i] = remainder
 
-    def move(self, x, y, z):
+
+    def move(self, x, y, z, max_speed=None):
         """Update the coordinates with a new relative location."""
-        for i, amount in enumerate((x, y, z)):
+        movement = (x, y, z)
+        
+        #Stop total speed going over max value
+        if max_speed is not None:
+            total_speed = pow(sum(pow(i, 2) for i in movement), 0.5)
+            if total_speed > max_speed:
+                multiplier = max_speed / total_speed
+                movement = tuple(amount * multiplier for amount in movement)
+        
+        for i, amount in enumerate(movement):
             if amount:
                 self._move(i, amount)
-    
-    
+
+        return self
+
     def _convert_to_world(self):
         """Convert the blocks into absolute coordinates as a string."""
 
@@ -218,28 +190,21 @@ class Movement(object):
         coordinates = [sum(int(amount) * pow(self.BLOCK_SIZE, i)
                            for i, amount in enumerate(coordinate))
                        for coordinate in self.player_loc]
-        
+
         #Add the decimal points as strings
-        coordinates = [(str(absolute_coordinates[i])
-                        + '.'
-                        + str(float(self.player_loc[i][0])).split('.')[1]
-                       for i in self.COORDINATES]
-                       
+        coordinates = ['{}.{}'.format(coord, str(location[0]).split('.')[1])
+                       for coord, location in zip(coordinates, self.player_loc)]
+
         #Fix for numbers between -1 and 0
-        for i in self.COORDINATES:
-            if (len(self.player_loc[i]) == 1
-                and str(self.player_loc[i][0]).startswith('-0.')):
-                absolute_coordinates[i] = '-' + absolute_coordinates[i]
-        return absolute_coordinates
-            
-            
+        for i, location in enumerate(self.player_loc):
+            if len(location) == 1 and (-1 < location[0] < 0):
+                coordinates[i] = '-' + coordinates[i]
+                
+        return coordinates
+
+
 class MovementError(Exception):
     """Custom movement exceptions."""
     @classmethod
     def index_error_coordinate(self):
         raise MovementError('coordinate index out of range')
-        
-        
-if __name__ == '__main__':
-    import doctest
-    doctest.testmod()
