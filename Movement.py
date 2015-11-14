@@ -1,13 +1,13 @@
 from __future__ import division
 import math
 
-def _split_decimal_part(n):
+def split_decimal_part(n):
     """Split the input into its integral part and its decimal part.
 
     Parameters:
         n (str/int/float): Integer to convert.
 
-    >>> Movement._split_decimal_part('15.35321')
+    >>> Movement.split_decimal_part('15.35321')
     (15, 35321)
     """
     n = str(n)
@@ -56,7 +56,7 @@ class Movement(object):
             self.BLOCK_SIZE = block_size
 
         #Store the initial coordinates
-        self.player_loc = [self.calculate(*_split_decimal_part(i))
+        self.player_loc = [self.calculate(*split_decimal_part(i))
                            for i in map(str, (x, y, z))]
 
 
@@ -93,7 +93,7 @@ class Movement(object):
         """
         n = str(n)
         try:
-            self.player_loc[i] = self.calculate(*_split_decimal_part(n))
+            self.player_loc[i] = self.calculate(*split_decimal_part(n))
         except IndexError:
             MovementError.index_error_coordinate()
 
@@ -150,20 +150,31 @@ class Movement(object):
         (235.0, -4706.680532, -1499936.5002)
         """
         
+        #Fix floats going into exponentials
+        if 'e' in str(amount):
+            amount = int(round(cur_speed))
         axis = self.player_loc[direction]
         
-        for i, amount in enumerate(self.calculate(*_split_decimal_part(amount))):
+        #Calculate new blocks and add to old ones
+        for i, amount in enumerate(self.calculate(*split_decimal_part(amount))):
             try:
                 axis[i] += amount
             except IndexError:
                 axis.append(amount)
         
+        #Overflow large values into next block
         overflow = 0
         for i, amount in enumerate(axis):
             amount += overflow
             negative = math.copysign(1, amount)
             overflow, remainder = [n * negative for n in divmod(abs(amount), self.BLOCK_SIZE)]
             self.player_loc[direction][i] = remainder
+        
+        #Add extra blocks
+        while overflow:
+            negative = math.copysign(1, overflow)
+            overflow, remainder = [n * negative for n in divmod(abs(overflow), self.BLOCK_SIZE)]
+            self.player_loc[direction].append(remainder)
 
 
     def move(self, x, y, z, max_speed=None):
