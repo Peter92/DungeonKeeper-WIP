@@ -3,10 +3,8 @@ import math
 
 def split_decimal_part(n):
     """Split the input into its integral part and its decimal part.
-
     Parameters:
         n (str/int/float): Integer to convert.
-
     >>> Movement.split_decimal_part('15.35321')
     (15, 35321)
     """
@@ -16,19 +14,17 @@ def split_decimal_part(n):
     except ValueError:
         return int(n), 0
     else:
-        return int(integral) if integral else 0, int(decimal) if decimal else 0
+        return int(integral) if integral else 0, str(decimal) if decimal else '0', integral == '-0'
             
 class Movement(object):
     """This was built to allow large coordinates to be stored without
     causing any floating point precision errors.
     It is faster than the decimal module, especially with processing
     large amounts of small movements.
-
     It works by breaking down the coordinates into 'blocks', where each
     new block is the squared amount of the previous one.
     The method is very similar to the base number system, in which a
     block size of 10 will split 235.9 into [5.9, 3, 2].
-
     A large block size is faster than a small one, though the precision
     will be worse. At 16 digits, Python can't store any more decimals,
     so definitely keep it under that.
@@ -40,13 +36,11 @@ class Movement(object):
     def __init__(self, x=0, y=0, z=0, block_size=None):
         """Convert the starting coordinates into the format accepted
         by the class.
-
         >>> m = Movement('15',
         ...              '-31564.99933425584842',
         ...              '1699446367870005.2')
         >>> m.player_loc
         [[15.0], [-31564.99933425585], [38640.2, 17514, 2485, 6]]
-
         >>> print m
         (15.0, -31564.9993343, 1699446367870005.2)
         """
@@ -73,7 +67,6 @@ class Movement(object):
 
     def __getitem__(self, i):
         """Return an absolute value for X, Y or Z.
-
         Parameters:
             i (int): Index of coordinate.
         """
@@ -85,10 +78,8 @@ class Movement(object):
 
     def __setitem__(self, i, n):
         """Set an absolute value for X, Y or Z.
-
         Parameters:
             i (int): Index of coordinate.
-
             n (int/float): New value to set.
         """
         n = str(n)
@@ -98,15 +89,13 @@ class Movement(object):
             MovementError.index_error_coordinate()
 
 
-    def calculate(self, amount, decimal=0):
+    def calculate(self, amount, decimal='0', negative_zero=False):
         """Convert the coordinate into a block.
-
         Parameters:
             amount (int/str): Total value without any decimals.
-
-            decimal (int, optional): The decimal value as an integer
+            decimal (str, optional): The decimal value as an integer
                 without the leading '0.'.
-
+            negative_zero (bool, optional): Fix for -0.x numbers.
         >>> Movement().calculate(128)
         [128.0]
         >>> Movement().calculate(128, 5176)
@@ -117,7 +106,10 @@ class Movement(object):
         [0.0, 0, 1]
         """
         amount = int(amount)
-        multiplier = int(math.copysign(1, amount))
+        if negative_zero:
+            multiplier = -1
+        else:
+            multiplier = int(math.copysign(1, amount))
         amount *= multiplier
 
         coordinate = []
@@ -134,17 +126,13 @@ class Movement(object):
 
     def _move(self, direction, amount, final_run=False):
         """Add the coordinate to a block.
-
         Parameters:
             direction (int): Represents X, Y, or Z as a number.
-
             amount (int/float): Amount to add or subtract from the
             coordinate.
-
         >>> m = Movement(135, 426.42, -1499941.5002)
         >>> print m
         (135.0, 426.42, -1499941.5002)
-
         >>> m.move(100, -5133.100532, 5)
         >>> print m
         (235.0, -4706.680532, -1499936.5002)
@@ -152,7 +140,7 @@ class Movement(object):
         
         #Fix floats going into exponentials
         if 'e' in str(amount):
-            amount = int(round(cur_speed))
+            amount = int(round(amount))
         axis = self.player_loc[direction]
         
         #Calculate new blocks and add to old ones
