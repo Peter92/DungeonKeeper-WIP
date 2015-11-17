@@ -5,7 +5,7 @@ import copy
 class MovementError(Exception):
     """Custom movement exceptions."""
     CoordinateIndexError = 'coordinate index out of range'
-    CoordinateTypeError = 'value given must be tuple or list of 3 values'
+    CoordinateTypeError = 'value given must be tuple or list of {} values'
     CoordinateValueError = 'values given must be numbers'
     
 def split_decimal_part(n):
@@ -45,39 +45,56 @@ class Movement(object):
     BLOCK_SIZE = 65535
     COORDINATES = range(3)
 
-    def __init__(self, x=0, y=0, z=0, block_size=None):
+    def __init__(self, start=(0, 0, 0), block_size=None, raw=False):
         """Convert the starting coordinates into the format accepted
         by the class.
 
         >>> m = Movement('15',
         ...              '-31564.99933425584842',
         ...              '1699446367870005.2')
-        >>> m.player_loc
+        >>> m.raw
         [[15.0], [-31564.99933425585], [38640.2, 17514, 2485, 6]]
 
         >>> print m
         (15.0, -31564.9993343, 1699446367870005.2)
         """
+        
+        
+        if isinstance(start, Movement):
+            self = copy.deepcopy(start)
+            return
+        
+        self.len = len(start)
+        self.TypeError = MovementError.CoordinateTypeError.format(self.len)
+        if self.len == 1:
+            self.TypeError = self.TypeError[:-1]
 
         #Set a new block size if needed
         if block_size is not None:
             self.BLOCK_SIZE = block_size
 
-        #Store the initial coordinates
-        self.player_loc = [self.calculate(*split_decimal_part(i))
-                           for i in map(str, (x, y, z))]
-
+        if raw == True:
+            self.raw = start
+        
+        else:
+            #Store the initial coordinates
+            self.raw = [self.calculate(*split_decimal_part(i))
+                               for i in map(str, start)]
+    def copy(self):
+        return copy.deepcopy(self)
 
     def __repr__(self):
         """This needs improving, currently it just converts back to
         the absolute coordinates."""
-        return 'Movement({}, {}, {})'.format(*self._convert_to_world())
+        return 'Movement({})'.format(self._convert_to_world())
 
 
     def __str__(self):
         """Print the absolute coordinates."""
         return str(tuple(self._convert_to_world())).replace("'", "")
 
+    def __len__(self):
+        return self.len
 
     def __add__(self, x):
         """Add a tuple to the location.
@@ -95,7 +112,7 @@ class Movement(object):
         try:
             self_copy.move(*x)
         except TypeError:
-            raise TypeError(MovementError.CoordinateTypeError)
+            raise TypeError(self.TypeError)
         except ValueError:
             raise ValueError(MovementError.CoordinateValueError)
         return self_copy
@@ -118,7 +135,7 @@ class Movement(object):
         try:
             self_copy.move(*['-' + i if '-' not in i else i[1:] for i in map(str, x)])
         except TypeError:
-            raise TypeError(MovementError.CoordinateTypeError)
+            raise TypeError(self.TypeError)
         except ValueError:
             raise ValueError(MovementError.CoordinateValueError)
         return self_copy
@@ -136,10 +153,10 @@ class Movement(object):
         Traceback (most recent call last):
         SyntaxError: can't assign to literal
         """
-        if len(x) != 3:
-            raise TypeError(MovementError.CoordinateTypeError)
+        if len(x) != self.len:
+            raise TypeError(self.TypeError)
         start = Movement(*x)
-        start.move(*self.player_loc)
+        start.move(*self.raw)
         return start
     
     
@@ -161,19 +178,19 @@ class Movement(object):
         try:
             #Multiply by a single value
             x = int(x) if str(x).isdigit() else float(x)
-            self_copy.player_loc = [[block * x for block in coordinate] 
-                                    for coordinate in self.player_loc]
+            self_copy.raw = [[block * x for block in coordinate] 
+                                    for coordinate in self.raw]
         except TypeError:
             
             #Multiply by a list/tuple
             try:
-                if len(x) != len(self.player_loc):
-                    raise TypeError(MovementError.CoordinateTypeError)
+                if len(x) != self.len:
+                    raise TypeError(self.TypeError)
                     
                 x = [n if str(n).isdigit() else float(n) for n in x]
-                self_copy.player_loc = [[block * mult for block in coordinate]
+                self_copy.raw = [[block * mult for block in coordinate]
                                         for coordinate, mult 
-                                        in zip(self.player_loc, x)]
+                                        in zip(self.raw, x)]
             except ValueError:
                 raise ValueError(MovementError.CoordinateValueError)
                 
@@ -194,7 +211,7 @@ class Movement(object):
         try:
             return self._convert_to_world()[i]
         except IndexError:
-            MovementError.index_error_coordinate()
+            raise IndexError(MovementError.CoordinateIndexError)
 
 
     def __setitem__(self, i, n):
@@ -207,7 +224,7 @@ class Movement(object):
         """
         n = str(n)
         try:
-            self.player_loc[i] = self.calculate(*split_decimal_part(n))
+            self.raw[i] = self.calculate(*split_decimal_part(n))
         except IndexError:
             MovementError.index_error_coordinate()
 
@@ -228,14 +245,13 @@ class Movement(object):
         >>> Movement().calculate(4294836224)
         [65534.0, 65534]
         >>> Movement().calculate(4294836225)
-        [0.0, 0, 1]
         """
         negative_zero = amount == '-0'
         amount = int(amount)
         if negative_zero:
             multiplier = -1
         else:
-            multiplier = int(math.copysign(1, amount))
+            multiplier = -1 if int(amount) < 0 else 1#int(math.copysign(1, amount))
         amount *= multiplier
 
         coordinate = []
@@ -273,19 +289,19 @@ class Movement(object):
         else:
             #Fix floats going into exponentials
             if 'e' in str(amount):
-                amount = int(round(cur_speed))
+                amount = int(round(amount))
             new_blocks = self.calculate(*split_decimal_part(amount))
         
         #Calculate new blocks and add to old ones
         for i, amount in enumerate(new_blocks):
             try:
-                self.player_loc[direction][i] += amount
+                self.raw[direction][i] += amount
             except IndexError:
-                self.player_loc[direction].append(amount)
+                self.raw[direction].append(amount)
         
     def _overflow(self):
         
-        for i, coordinate in enumerate(self.player_loc):
+        for i, coordinate in enumerate(self.raw):
         
             #Overflow large values into next block
             overflow = 0
@@ -293,26 +309,30 @@ class Movement(object):
                 amount += overflow
                 negative = math.copysign(1, amount)
                 overflow, remainder = [n * negative for n in divmod(abs(amount), self.BLOCK_SIZE)]
-                self.player_loc[i][j] = remainder
+                if j:
+                    remainder = int(remainder)
+                self.raw[i][j] = remainder
             
             #Add extra blocks
             while overflow:
                 negative = math.copysign(1, overflow)
                 overflow, remainder = [n * negative for n in divmod(abs(overflow), self.BLOCK_SIZE)]
-                self.player_loc[i].append(int(remainder))
+                self.raw[i].append(int(remainder))
 
-    def move(self, x, y, z, max_speed=None):
+    def move(self, location, max_speed=None):
         """Update the coordinates with a new relative location."""
-        movement = (x, y, z)
+        
+        if len(location) != self.len:
+            raise TypeError(self.TypeError)
         
         #Stop total speed going over max value
         if max_speed is not None:
-            total_speed = pow(sum(pow(i, 2) for i in movement), 0.5)
+            total_speed = pow(sum(pow(i, 2) for i in location), 0.5)
             if total_speed > max_speed:
                 multiplier = max_speed / total_speed
-                movement = tuple(amount * multiplier for amount in movement)
+                location = tuple(amount * multiplier for amount in location)
         
-        for i, amount in enumerate(movement):
+        for i, amount in enumerate(location):
             if amount:
                 self._move(i, amount)
         self._overflow()
@@ -323,14 +343,14 @@ class Movement(object):
         #Convert coordinates back to numbers, without using floats
         coordinates = [sum(int(amount) * pow(self.BLOCK_SIZE, i)
                            for i, amount in enumerate(coordinate))
-                       for coordinate in self.player_loc]
+                       for coordinate in self.raw]
 
         #Add the decimal points as strings
         coordinates = ['{}.{}'.format(coord, str(location[0]).split('.')[1])
-                       for coord, location in zip(coordinates, self.player_loc)]
+                       for coord, location in zip(coordinates, self.raw)]
 
         #Fix for numbers between -1 and 0
-        for i, location in enumerate(self.player_loc):
+        for i, location in enumerate(self.raw):
             if len(location) == 1 and (-1 < location[0] < 0):
                 coordinates[i] = '-' + coordinates[i]
                 
