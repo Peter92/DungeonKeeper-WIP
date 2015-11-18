@@ -2,10 +2,14 @@ Slowly going to try build a game, I'll add various parts here as I work on them.
 
 #Current features
 
-Display an ifinite world (currently empty)
+Display an infinite world (currently empty)
 
 Infinite player movement
 
-Some optimisation on tiles
+Random noise on tiles, with optimisation
 
-Random noise on tiles
+#Files
+
+RPGCore.py: Currently only contains code for infinite movement
+
+RPGWorld.py: Used to create the world, could be swapped out with procedural generation.
