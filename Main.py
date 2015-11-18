@@ -12,8 +12,8 @@ from RPGCore import Movement, split_decimal_part
 from RPGWorld import *
 
 def quick_hash(x, y, offset=10):
-    dx = hash(str(x) + str(y / 2))
-    dy = hash(str(y * x / 2))
+    dx = hash(str(x) + str(y // 2))
+    dy = hash(str(y * x // 2))
     num = int(0.5 * (dx + dy) * (dx + dy + 1)) % (offset * 2) - offset
     return num
     
@@ -144,6 +144,8 @@ class MainGame(object):
     WIDTH = 1280
     HEIGHT = 720
     DEFAULT_TILE = WATER
+    TILE_MAX_SIZE = 128
+    TILE_MIN_SIZE = 16
     
     def _game_core(self):
         
@@ -168,28 +170,20 @@ class MainGame(object):
         
         n = 1
         if self._keys[pygame.K_RSHIFT]:
-         n *= 100000000
+            n *= sum(len(i) ** (len(i)//2+1) for i in self.camera._convert_to_world())
         if cam_up:
-            #self.camera[1] -= n
             self.camera._move(1, -n)
         if cam_down:
-            #self.camera[1] += n
             self.camera._move(1, n)
         if cam_left:
-            #self.camera[0] -= n
             self.camera._move(0, -n)
         if cam_right:
-            #self.camera[0] += n
             self.camera._move(0, n)
         if any((cam_up, cam_down, cam_left, cam_right)):
             self.recalculate()
         
-        
         self._draw_tiles()
         
-        #print self.player.coordinates(), self.player.speed, self.player.bearing, self.player.turning
-        #self.player.speed_accel *= d('1.01')
-            
         self.player.step(self._frame_time)
         
         
@@ -213,12 +207,21 @@ class MainGame(object):
                 
                 pygame.draw.rect(self.screen, colour, (sx * self.tilesize, sy * self.tilesize, self.tilesize, self.tilesize)) 
 
+    def _zoom_handler(self):
+        #If the zoom level is changed by anything else, revert it back
+        try:
+            if self._tilesize_revert is not None:
+                self.tilesize = self._tilesize_revert
+        except AttributeError:
+            pass
+        if self.tilesize > self.TILE_MAX_SIZE:
+            self.tilesize = self.TILE_MAX_SIZE
+        elif self.tilesize < self.TILE_MIN_SIZE:
+            self.tilesize = self.TILE_MIN_SIZE
     
     def recalculate(self):
         
-        #self.tilesize = max(self.min_tilesize, self.tilesize)
-        #num_tiles_x = int(self.WIDTH / self.tilesize)
-        
+        self._zoom_handler()
     
         cam_loc = [int(i.split('.')[0]) for i in self.camera._convert_to_world()]
         self.x_min = cam_loc[0] - 1
@@ -228,10 +231,10 @@ class MainGame(object):
         
         #To check the culling
         if False:
-            self.x_min += 2
-            self.x_max -= 2
-            self.y_min += 2
-            self.y_max -= 2
+            self.x_min += 1
+            self.x_max -= 1
+            self.y_min += 1
+            self.y_max -= 1
             
         self.x_range = range(self.x_min, self.x_max)
         self.y_range = range(self.y_min, self.y_max)
@@ -244,47 +247,19 @@ class MainGame(object):
         for key in self.block_locations:
             if not self.x_min < key[0] < self.x_max or not self.y_min < key[1] < self.y_max:
                 del_keys.append(key)
-            elif key not in self.block_hashes:
-                self.block_hashes[coordinate] = quick_hash(*coordinate, offset=10)
         for key in del_keys:
             del self.block_locations[key]
             del self.block_hashes[key]
-        
-        #Find out the difference since the last frame
-        old_block_locations = self.block_locations.copy()
-        try:
-            x_diff = self.x_min_o - self.x_min
-            y_diff = self.y_min_o - self.y_min
-        except (NameError, AttributeError):
-            self.x_min_o = self.x_min
-            self.y_min_o = self.y_min
-            x_diff = y_diff = 0
         
         #Rebuild the new list of blocks
         for x in self.x_range:
             for y in self.y_range:
                 coordinate = (x, y)
-                old_coordinate = (x + x_diff, y + y_diff)
+                self.block_locations[coordinate] = (x + cx, y + cy)
                 try:
-                    self.block_locations[coordinate] = old_block_locations[old_coordinate]
                     self.block_hashes[coordinate]
                 except KeyError:
-                    self.block_locations[coordinate] = (x + cx, y + cy)
-                    self.block_hashes[coordinate] = quick_hash(*coordinate, offset=10)
-                '''
-                if coordinate not in self.block_locations:
-                    self.block_locations[coordinate] = (x + cx, y + cy, quick_hash(*coordinate, offset=10))
-                else:
-                    try:
-                        raise KeyError()
-                        self.block_locations[coordinate] = old_block_locations[(x + x_diff, y + y_diff)]
-                    except KeyError:
-                        self.block_locations[coordinate] = (x + cx, y + cy, quick_hash(*coordinate, offset=10))
-        
-                '''
-        self.x_min_o = self.x_min
-        self.y_min_o = self.y_min
-        
+                    self.block_hashes[coordinate] = quick_hash(*coordinate, offset=self.noise_level)
     
     def _update_window(self):
         self.block_locations = {}
@@ -296,12 +271,11 @@ class MainGame(object):
     
         #Initialise screen
         pygame.init()
-        self.camera = Movement((10**1, 0))
+        self.camera = Movement((0, 0))
         pygame.display.set_caption('Basic RPG')
         self.clock = pygame.time.Clock()
         self.tilesize = TILESIZE
-        
-        self.max_tiles = (50, 10000)
+        self.noise_level = 20
         
         self._update_window()
         
@@ -342,9 +316,11 @@ class MainGame(object):
                     scroll_speed = self.tilesize // 10 + 1
                     if event.button == 4:
                         self.tilesize += scroll_speed
+                        self._tilesize_revert = None
                         self.recalculate()
                     if event.button == 5:
                         self.tilesize -= scroll_speed
+                        self._tilesize_revert = None
                         self.recalculate()
             
             self._game_core()
@@ -359,7 +335,7 @@ class MainGame(object):
                 #self._draw_tiles()
                 
             self.clock.tick(60)
-            pygame.display.set_caption(str(self.clock.get_fps()))
+            pygame.display.set_caption(str([self.clock.get_fps(), self.camera._convert_to_world()]))
             time_last = time_current
             
 MainGame().play()
