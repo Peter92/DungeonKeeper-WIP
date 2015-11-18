@@ -110,7 +110,7 @@ class Movement(object):
         """
         self_copy = copy.deepcopy(self)
         try:
-            self_copy.move(*x)
+            self_copy.move(x)
         except TypeError:
             raise TypeError(self.TypeError)
         except ValueError:
@@ -133,7 +133,7 @@ class Movement(object):
         """
         self_copy = copy.deepcopy(self)
         try:
-            self_copy.move(*['-' + i if '-' not in i else i[1:] for i in map(str, x)])
+            self_copy.move(['-' + i if '-' not in i else i[1:] for i in map(str, x)])
         except TypeError:
             raise TypeError(self.TypeError)
         except ValueError:
@@ -155,8 +155,8 @@ class Movement(object):
         """
         if len(x) != self.len:
             raise TypeError(self.TypeError)
-        start = Movement(*x)
-        start.move(*self.raw)
+        start = Movement(x)
+        start.move(self.raw)
         return start
     
     
@@ -319,7 +319,7 @@ class Movement(object):
                 overflow, remainder = [n * negative for n in divmod(abs(overflow), self.BLOCK_SIZE)]
                 self.raw[i].append(int(remainder))
 
-    def move(self, location, max_speed=None):
+    def move(self, location, max_speed=None, reverse=False):
         """Update the coordinates with a new relative location."""
         
         if len(location) != self.len:
@@ -334,8 +334,11 @@ class Movement(object):
         
         for i, amount in enumerate(location):
             if amount:
+                if reverse:
+                    amount = -amount
                 self._move(i, amount)
         self._overflow()
+        return self
 
     def _convert_to_world(self):
         """Convert the blocks into absolute coordinates as a string."""
