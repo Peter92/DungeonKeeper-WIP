@@ -21,7 +21,7 @@ TILECOLOURS = {
 }
 
 #Test case
-tilemap = {
+TILEMAP = {
     (-1, -2): GRASS,
     ( 0, -2): COAL,
     ( 1, -2): DIRT,
@@ -43,6 +43,16 @@ tilemap = {
 for x in range(-50, 50):
     for y in range(-50, 50):
         if x ** 2 + y ** 2 < 500:
-            tilemap[(x, y)] = GRASS
+            TILEMAP[(x, y)] = GRASS
 
 TILESIZE = 40
+DEFAULTTILE = WATER
+
+def get_tile(x, y=None):
+    """Function that can be updated to something better in the future."""
+    if y is None:
+        x, y = x
+    try:
+        return TILEMAP[(x, y)]
+    except KeyError:
+        return DEFAULTTILE
