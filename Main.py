@@ -9,34 +9,24 @@ from decimal import getcontext, Decimal as d
 _default_precision = getcontext().prec
 
 from DKWorld import *
-from DKCollection import *
+from DKMisc import *
 from FrameLimit import GameTime, GameTimeLoop
 
-def quick_hash(x, y, offset=10):
-    dx = hash(str(x // 2) + str(y))
-    dy = hash(str((y * x) // 2))
-    num = int(0.5 * (dx + dy) * (dx + dy + 1)) % (offset * 2) - offset
-    return num
-
-def split_num(n):
-    return (int(n), remove_int(n))
-    
-def remove_int(n):
-    if n > 0:
-        return n % 1
-    try:
-        n_decimal = str(n).split('.')[1]
-        return float('-0.' + n_decimal)
-    except IndexError:
-        return 0.0
         
-class Camera(object):
+class ObjectMovement(object):
+    """Class that can store infinite movement, possibly other stuff later on."""
+    
     def __init__(self, x=0, y=0, speed=100):
+        """Input starting location and the max speed."""
         self.x_int, self.x_float = split_num(x)
         self.y_int, self.y_float = split_num(y)
         self.speed = speed
     
     def _formatstr(self, n_int, n_float):
+        """Convert int and float to a string, needed for large numbers
+        when adding wouldn't work. 
+        (will be moved out of this class later)
+        """
         if n_int < 0:
             n_str = '-'[n_int != -1:] + str(n_int + 1) + '.' + str(1 - n_float)[2:]
         else:
@@ -48,6 +38,7 @@ class Camera(object):
                     self._formatstr(self.y_int, self.y_float))).replace("'", "")
         
     def move(self, x=0, y=0, multiplier=1):
+        """Add to the total movement."""
         if x:
             x_int, x_float = split_num(x * self.speed * multiplier)
             self.x_int += x_int
@@ -61,6 +52,7 @@ class Camera(object):
         self.overflow()
     
     def overflow(self):
+        """Overflow the decimal value if above 1."""
         i = 1 if self.x_float >= 1 else -1
         while not 0 <= self.x_float < 1:
             self.x_float -= i
@@ -69,6 +61,15 @@ class Camera(object):
         while not 0 <= self.y_float < 1:
             self.y_float -= i
             self.y_int += i
+    
+class GameData(object):
+    """5 minute thing just getting block selection working.
+    More of a placeholder than anything else currently.
+    """
+    BLOCK_TAG = set()
+    BLOCK_SEL = set()
+    BLOCK_DATA = {}
+    
     
 class MainGame(object):
 
@@ -79,65 +80,72 @@ class MainGame(object):
     TILE_MIN_SIZE = 16
     FPS = None
     TICKS = 120
-    BLOCK_TAG = set()
 
     def recalculate(self):
+        overflow = 2 #How many extra blocks to draw around screen
         try:
             self.frame_data['Redraw'] = True
         except AttributeError:
             pass
-        overflow = 1
-        self.x_min = self.cam.x_int - overflow
-        self.y_min = self.cam.y_int - overflow
-        self.x_max = self.cam.x_int + int(self.WIDTH / self.tilesize) + overflow
-        self.y_max = self.cam.y_int + int(self.HEIGHT / self.tilesize) + overflow
         
+        #Calculate edges of screen
+        x_min = self.cam.x_int + 1 - overflow
+        y_min = self.cam.y_int + 1 - overflow
+        x_max = self.cam.x_int + int(self.WIDTH / self.tilesize) + overflow
+        y_max = self.cam.y_int + int(self.HEIGHT / self.tilesize) + overflow
         
+        #Build list of all tiles
         self.screen_coordinates = [(x, y) 
-                                   for x in range(self.x_min, self.x_max) 
-                                   for y in range(self.y_min, self.y_max)]
+                                   for x in range(x_min, x_max) 
+                                   for y in range(y_min, y_max)]
         
         
-        #Delete the keys that have gone off screen
+        #Delete the tiles that have gone off screen
         del_keys = []
         for key in self.screen_block_data:
-            if not self.x_min < key[0] < self.x_max or not self.y_min < key[1] < self.y_max:
+            if not x_min < key[0] < x_max or not y_min < key[1] < y_max:
                 del_keys.append(key)
         for key in del_keys:
             del self.screen_block_data[key]
         
         
         #Rebuild the new list of blocks
-        block_data_copy = self.screen_block_data.copy()
         for coordinate in self.screen_coordinates:
         
-            block_type = get_tile(coordinate)
             tile_origin = ((coordinate[0] - self.cam.x_int) - self.cam.x_float, 
                            (coordinate[1] - self.cam.y_int) - self.cam.y_float)
             tile_location = tuple(i * self.tilesize for i in tile_origin)
             
-            #Update existing point with new location
-            if coordinate in self.screen_block_data and coordinate not in self.BLOCK_TAG:
+            if coordinate in self.screen_block_data:
+                #Update existing point with new location
                 self.screen_block_data[coordinate][2] = tile_location
-                continue
             
-            #Generate new point info
-            block_hash = quick_hash(*coordinate, offset=self.noise_level)
-            main_colour = TILECOLOURS[block_type]
-            if coordinate in self.BLOCK_TAG:
-                main_colour = (0, 0, 0)
-            block_colour = [min(255, max(0, c + block_hash)) for c in main_colour]
-            self.screen_block_data[coordinate] = [block_type, 
-                                                  block_colour, 
-                                                  tile_location]
+            else:
+                #Generate new point info
+                block_type = get_tile(coordinate)
+                block_hash = quick_hash(*coordinate, offset=self.noise_level)
+                
+                #Get colour
+                if coordinate in self.game_data.BLOCK_TAG:
+                    main_colour = CYAN   #in the future, mix this with the main colour
+                else:
+                    main_colour = TILECOLOURS[block_type]
+                block_colour = [min(255, max(0, c + block_hash)) for c in main_colour]
+                self.screen_block_data[coordinate] = [block_type, 
+                                                      block_colour, 
+                                                      tile_location]
         
     
     def setscreen(self):
+        """Recalculate screen specific things."""
         try:
             self.frame_data['Redraw'] = True
         except AttributeError:
             pass
-        self.screen_block_data = {}
+        try:
+            self.screen_block_data
+        except AttributeError:
+            self.screen_block_data = {}
         self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.HWSURFACE)
     
@@ -149,15 +157,14 @@ class MainGame(object):
         
         #Initialise game
         GT = GameTime(self.FPS, self.TICKS)
+        self.game_data = GameData()
         self.state = 'Main'
-        self.tilesize = TILESIZE
+        self.tilesize = 20
         self.noise_level = 15
-        
-        #Fill background
         self.screen.fill((255, 255, 255))
         
         #Camera
-        self.cam = Camera(0, 0, 0.125)
+        self.cam = ObjectMovement(0, 0, 0.125)
         
         #Run inital code
         self.recalculate()
@@ -165,6 +172,8 @@ class MainGame(object):
         pygame.display.flip()
         while True:
             with GameTimeLoop(GT) as game_time:
+            
+                #Store frame specific things so you don't need to call it multiple times
                 self.frame_data = {'Redraw': False,
                                    'Events': pygame.event.get(),
                                    'Keys': pygame.key.get_pressed(),
@@ -172,6 +181,8 @@ class MainGame(object):
                                    'MouseClick': pygame.mouse.get_pressed()}
                 if self.frame_data['Keys'][pygame.K_ESCAPE]:
                     pygame.quit()
+                
+                #Handle quitting and resizing window
                 for event in self.frame_data['Events']:
                     if event.type == pygame.QUIT:
                         return
@@ -179,29 +190,32 @@ class MainGame(object):
                         self.WIDTH, self.HEIGHT = event.dict['size']
                         self.setscreen()
                         self.recalculate()
-                #---MAIN LOOP START---
+                        
+                #---MAIN LOOP START---#
                 
                 if self.state == 'Main':
                     self.dk_core(game_time.ticks)
                 
                 
                 
-                #---MAIN LOOP END---
+                #---MAIN LOOP END---#
                 if game_time.fps:
                     pygame.display.set_caption('{} {}'.format(game_time.fps, self.cam))
                     
                 if self.frame_data['Redraw']:
+                    #self.screen.fill((0, 0, 0))
                     self._world_draw()
                     pygame.display.flip()
-                    self.screen.fill((255, 255, 255))
     
     def _world_draw(self):
+        """Draws the world background."""
         for coordinate in self.screen_coordinates:
             type, colour, location = self.screen_block_data[coordinate]
             pygame.draw.rect(self.screen, colour, (location[0], location[1], self.tilesize, self.tilesize))
     
-    def get_tile_coords(self):
-        click_segment = [split_num(i / self.tilesize) for i in self.frame_data['MousePos']]
+    def get_tile_coords(self, coordinates):
+        """Calculate which tile is at the coordinates."""
+        click_segment = [split_num(i / self.tilesize) for i in coordinates]
         cam_data = ((self.cam.x_int, self.cam.x_float),
                     (self.cam.y_int, self.cam.y_float))
         tile = []
@@ -216,10 +230,11 @@ class MainGame(object):
         
     
     def dk_core(self, num_ticks):
-        """Multiply values by num_ticks to keep a constant speed."""
+        """Main game function
+        Remember to multiply values by num_ticks to keep a constant speed.
+        """
         
         recalculate = False
-        
         #Camera control
         if num_ticks:
             cam_up = -int(self.frame_data['Keys'][pygame.K_w])
@@ -234,7 +249,12 @@ class MainGame(object):
         for event in self.frame_data['Events']:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
-                    self.BLOCK_TAG.add(self.get_tile_coords())
+                    tile_coordinates = self.get_tile_coords(self.frame_data['MousePos'])
+                    if tile_coordinates in self.game_data.BLOCK_TAG:
+                        self.game_data.BLOCK_TAG.remove(tile_coordinates)
+                    else:
+                        self.game_data.BLOCK_TAG.add(tile_coordinates)
+                    del self.screen_block_data[tile_coordinates]
                     recalculate = True
                     
             
