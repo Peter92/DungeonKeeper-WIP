@@ -6,6 +6,8 @@ Infinite camera movement (optimised)
 
 Random noise on tiles (optimised)
 
+Zooming dependant on cursor position
+
 Drag to mark blocks for deletion
 
 #Next up
