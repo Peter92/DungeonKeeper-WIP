@@ -281,40 +281,53 @@ class MainGame(object):
             new_height = self.HEIGHT / self.tilesize
             move_amount = [old_width - new_width, old_height - new_height]
             
-            #Control camera movement while zooming
             if self.frame_data['MousePos']:
             
-                x_mouse = self.frame_data['MousePos'][0]
-                y_mouse = self.frame_data['MousePos'][1]
+                #Move camera at min or max zoom level
+                if old_width == new_width or False:
+                    if self.tilesize == self.TILE_MIN_SIZE:
+                        #Camera speed when fully zoomed out
+                        multiplier = 16
+                    elif self.tilesize == self.TILE_MAX_SIZE:
+                        #Camera speed when fully zoomed in
+                        multiplier = -4
+                    move_amount[0] -= ((self.frame_data['MousePos'][0] / self.WIDTH) - 0.5) * multiplier
+                    move_amount[1] -= ((self.frame_data['MousePos'][1] / self.HEIGHT) - 0.5) * multiplier
                 
-                #Multiply the mouse so that zooming at the edge will move outwards
-                if extend_edges:
-                    amount = 0.1
+                #Move camera when zooming
+                else:
+                
+                    x_mouse = self.frame_data['MousePos'][0]
+                    y_mouse = self.frame_data['MousePos'][1]
                     
-                    x_mult = (x_mouse / self.WIDTH)
-                    if x_mult < 0.5:
-                        x_mult2 = 1 - x_mult * 2
-                        x_mouse -= amount * x_mult2 * self.WIDTH
-                    elif x_mult > 0.5:
-                        x_mult2 = (x_mult - 0.5) * 2
-                        x_mouse += amount * x_mult2 * self.WIDTH
+                    #Multiply the mouse so that zooming at the edge will move outwards
+                    if extend_edges:
+                        amount = 0.1
                         
-                    y_mult = (y_mouse / self.HEIGHT)
-                    if x_mult < 0.5:
-                        y_mult2 = 1 - y_mult * 2
-                        y_mouse -= amount * y_mult2 * self.HEIGHT
-                    elif y_mult > 0.5:
-                        y_mult2 = (y_mult - 0.5) * 2
-                        y_mouse += amount * y_mult2 * self.HEIGHT
-                        
+                        x_mult = (x_mouse / self.WIDTH)
+                        if x_mult < 0.5:
+                            x_mult2 = 1 - x_mult * 2
+                            x_mouse -= amount * x_mult2 * self.WIDTH
+                        elif x_mult > 0.5:
+                            x_mult2 = (x_mult - 0.5) * 2
+                            x_mouse += amount * x_mult2 * self.WIDTH
+                            
+                        y_mult = (y_mouse / self.HEIGHT)
+                        if y_mult < 0.5:
+                            y_mult2 = 1 - y_mult * 2
+                            y_mouse -= amount * y_mult2 * self.HEIGHT
+                        elif y_mult > 0.5:
+                            y_mult2 = (y_mult - 0.5) * 2
+                            y_mouse += amount * y_mult2 * self.HEIGHT
+                            
+                    
+                    centre_multiplier = 8 #Don't understand why this needs to be 8 but it works
+                    move_amount[0] *= (x_mouse / self.WIDTH) * centre_multiplier
+                    move_amount[1] *= (y_mouse / self.HEIGHT) * centre_multiplier
                 
-                centre_multiplier = 8 #Don't understand why this needs to be 8 but it works
-                move_amount[0] *= (x_mouse / self.WIDTH) * centre_multiplier
-                move_amount[1] *= (y_mouse / self.HEIGHT) * centre_multiplier
                 
-                
-                self.cam.move(*move_amount)
-                recalculate = True
+            self.cam.move(*move_amount)
+            recalculate = True
             
         if recalculate:
             self.recalculate()
