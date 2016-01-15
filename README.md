@@ -6,4 +6,10 @@ Infinite camera movement (optimised)
 
 Random noise on tiles (optimised)
 
-Mark blocks for deletion
+Drag to mark blocks for deletion
+
+#Next up
+
+Rewrite tiles to chunks since they're still slow
+
+Add basic units to mine the selected blocks
