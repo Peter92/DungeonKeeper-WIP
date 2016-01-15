@@ -2,11 +2,8 @@ from __future__ import division
 import time
 import pygame
 import math
-import decimal
 import random
 from operator import itemgetter
-from decimal import getcontext, Decimal as d
-_default_precision = getcontext().prec
 
 from DKWorld import *
 from DKMisc import *
@@ -37,15 +34,18 @@ class ObjectMovement(object):
         return str((self._formatstr(self.x_int, self.x_float), 
                     self._formatstr(self.y_int, self.y_float))).replace("'", "")
         
-    def move(self, x=0, y=0, multiplier=1):
+    def move(self, x=0, y=0, multiplier=None):
         """Add to the total movement."""
+        if multiplier is None:
+            multiplier = self.speed
+            
         if x:
-            x_int, x_float = split_num(x * self.speed * multiplier)
+            x_int, x_float = split_num(x * multiplier)
             self.x_int += x_int
             self.x_float += x_float
                 
         if y:
-            y_int, y_float = split_num(y * self.speed * multiplier)
+            y_int, y_float = split_num(y * multiplier)
             self.y_int += y_int
             self.y_float += y_float
         
@@ -63,11 +63,13 @@ class ObjectMovement(object):
             self.y_int += i
     
 class GameData(object):
-    """5 minute thing just getting block selection working.
-    More of a placeholder than anything else currently.
-    """
+    """Stuff to do with block selection currently."""
     BLOCK_TAG = set()
-    BLOCK_SEL = set()
+    BLOCK_TMP = set()
+    BLOCK_TMP_OLD = set()
+    BLOCK_TMP_START = None
+    BLOCK_TMP_END = None
+    BLOCK_TMP_TYPE = 0
     BLOCK_DATA = {}
     
     
@@ -126,12 +128,23 @@ class MainGame(object):
                 block_type = get_tile(coordinate)
                 block_hash = quick_hash(*coordinate, offset=self.noise_level)
                 
-                #Get colour
-                if coordinate in self.game_data.BLOCK_TAG:
-                    main_colour = CYAN   #in the future, mix this with the main colour
-                else:
-                    main_colour = TILECOLOURS[block_type]
+                #Get alternate colour based on if the block is tagged
+                #Colours are different for debugging purposes
+                colour_mix = None
+                if self.game_data.BLOCK_TMP_TYPE and coordinate in self.game_data.BLOCK_TMP:
+                    colour_mix = YELLOW
+                elif coordinate in self.game_data.BLOCK_TAG and coordinate not in self.game_data.BLOCK_TMP:
+                    colour_mix = CYAN
+                
+                main_colour = TILECOLOURS[block_type]
                 block_colour = [min(255, max(0, c + block_hash)) for c in main_colour]
+                
+                #Mix alternate colour if required
+                try:
+                    block_colour = [(c + colour_mix[i] * 15) / 16 for i, c in enumerate(block_colour)]
+                except TypeError:
+                    pass
+                
                 self.screen_block_data[coordinate] = [block_type, 
                                                       block_colour, 
                                                       tile_location]
@@ -182,7 +195,7 @@ class MainGame(object):
                                    'MouseClick': pygame.mouse.get_pressed()}
                 if self.frame_data['Keys'][pygame.K_ESCAPE]:
                     pygame.quit()
-                
+                    
                 #Handle quitting and resizing window
                 for event in self.frame_data['Events']:
                     if event.type == pygame.QUIT:
@@ -248,21 +261,15 @@ class MainGame(object):
                 recalculate = True
         
         
-        zoom = False
-        zoom_speed = self.tilesize // 10 + 1
-        old_width = self.WIDTH / self.tilesize
-        old_height = self.HEIGHT / self.tilesize
         
         for event in self.frame_data['Events']:
             if event.type == pygame.MOUSEBUTTONDOWN:
+            
+                #Click on blocks
                 if event.button == 1:
                     tile_coordinates = self.get_tile_coords(self.frame_data['MousePos'])
-                    if tile_coordinates in self.game_data.BLOCK_TAG:
-                        self.game_data.BLOCK_TAG.remove(tile_coordinates)
-                    else:
-                        self.game_data.BLOCK_TAG.add(tile_coordinates)
-                    del self.screen_block_data[tile_coordinates]
-                    recalculate = True
+                    self.game_data.BLOCK_TMP_START = self.game_data.BLOCK_TMP_END = tile_coordinates
+                    self.game_data.BLOCK_TMP_TYPE = tile_coordinates not in self.game_data.BLOCK_TAG
                 
                 #Increase zoom
                 if event.button == 4:
@@ -272,25 +279,87 @@ class MainGame(object):
                 if event.button == 5:
                     zoom = -1
         
-        extend_edges = True
-        if zoom:
+        #Highlighting/tagging blocks
+        if self.game_data.BLOCK_TMP_START:
+        
+            #Commit selection to tag dictionary
+            if not self.frame_data['MouseClick'][0]:
+                for i in self.game_data.BLOCK_TMP:
+                    try:
+                        del self.screen_block_data[i]
+                    except KeyError:
+                        pass
+                recalculate = True
+                        
+                self.game_data.BLOCK_TMP_START = None
+                if self.game_data.BLOCK_TMP_TYPE:
+                    self.game_data.BLOCK_TAG |= self.game_data.BLOCK_TMP
+                else:
+                    self.game_data.BLOCK_TAG -= self.game_data.BLOCK_TMP
+                self.game_data.BLOCK_TMP = set()
+                self.game_data.BLOCK_TMP_OLD = set()
+            
+            #Show the selection while dragging
+            else:
+                tile_coordinates = self.get_tile_coords(self.frame_data['MousePos'])
+                
+                #Adjust the range depending on which direction the dragging is
+                if tile_coordinates[0] <= self.game_data.BLOCK_TMP_START[0]:
+                    x_range = range(tile_coordinates[0], self.game_data.BLOCK_TMP_START[0] + 1)
+                else:
+                    x_range = range(self.game_data.BLOCK_TMP_START[0], tile_coordinates[0] + 1)
+                if tile_coordinates[1] <= self.game_data.BLOCK_TMP_START[1]:
+                    y_range = range(tile_coordinates[1], self.game_data.BLOCK_TMP_START[1] + 1)
+                else:
+                    y_range = range(self.game_data.BLOCK_TMP_START[1], tile_coordinates[1] + 1)
+                
+                #Rebuild list of blocks
+                self.game_data.BLOCK_TMP = set((x, y) for x in x_range for y in y_range)
+                self.game_data.BLOCK_TMP.add(self.game_data.BLOCK_TMP_START)
+                
+                #Delete the cached block data for any block updates
+                difference1 = self.game_data.BLOCK_TMP_OLD - self.game_data.BLOCK_TMP
+                difference2 = self.game_data.BLOCK_TMP - self.game_data.BLOCK_TMP_OLD
+                for i in difference1 | difference2:
+                    try:
+                        del self.screen_block_data[i]
+                    except KeyError:
+                        pass
+                recalculate = True
+                self.game_data.BLOCK_TMP_OLD = self.game_data.BLOCK_TMP
+        
+        #Handle zooming and related camera movement
+        try:
+            zoom
+        except UnboundLocalError:
+            pass
+        else:
+            extend_edges_amount = 0.1
+            
+            #Calculate required info
+            zoom_speed = self.tilesize // 10 + 1
+            old_width = self.WIDTH / self.tilesize
+            old_height = self.HEIGHT / self.tilesize
+            
+            #Update the tile size
             self.tilesize += zoom_speed * zoom
             self.tilesize = round(max(self.TILE_MIN_SIZE, min(self.tilesize, self.TILE_MAX_SIZE)))
             
+            #Calculate updated info
             new_width = self.WIDTH / self.tilesize
             new_height = self.HEIGHT / self.tilesize
-            move_amount = [old_width - new_width, old_height - new_height]
+            move_amount = [old_width - new_width, old_height - new_height, 1]
             
             if self.frame_data['MousePos']:
             
                 #Move camera at min or max zoom level
-                if old_width == new_width or False:
+                if old_width == new_width:
                     if self.tilesize == self.TILE_MIN_SIZE:
                         #Camera speed when fully zoomed out
-                        multiplier = 16
+                        multiplier = 4
                     elif self.tilesize == self.TILE_MAX_SIZE:
                         #Camera speed when fully zoomed in
-                        multiplier = -4
+                        multiplier = -0.5
                     move_amount[0] -= ((self.frame_data['MousePos'][0] / self.WIDTH) - 0.5) * multiplier
                     move_amount[1] -= ((self.frame_data['MousePos'][1] / self.HEIGHT) - 0.5) * multiplier
                 
@@ -301,29 +370,27 @@ class MainGame(object):
                     y_mouse = self.frame_data['MousePos'][1]
                     
                     #Multiply the mouse so that zooming at the edge will move outwards
-                    if extend_edges:
-                        amount = 0.1
-                        
+                    if extend_edges_amount:
+                    
                         x_mult = (x_mouse / self.WIDTH)
                         if x_mult < 0.5:
                             x_mult2 = 1 - x_mult * 2
-                            x_mouse -= amount * x_mult2 * self.WIDTH
+                            x_mouse -= extend_edges_amount * x_mult2 * self.WIDTH
                         elif x_mult > 0.5:
                             x_mult2 = (x_mult - 0.5) * 2
-                            x_mouse += amount * x_mult2 * self.WIDTH
+                            x_mouse += extend_edges_amount * x_mult2 * self.WIDTH
                             
                         y_mult = (y_mouse / self.HEIGHT)
                         if y_mult < 0.5:
                             y_mult2 = 1 - y_mult * 2
-                            y_mouse -= amount * y_mult2 * self.HEIGHT
+                            y_mouse -= extend_edges_amount * y_mult2 * self.HEIGHT
                         elif y_mult > 0.5:
                             y_mult2 = (y_mult - 0.5) * 2
-                            y_mouse += amount * y_mult2 * self.HEIGHT
+                            y_mouse += extend_edges_amount * y_mult2 * self.HEIGHT
                             
                     
-                    centre_multiplier = 8 #Don't understand why this needs to be 8 but it works
-                    move_amount[0] *= (x_mouse / self.WIDTH) * centre_multiplier
-                    move_amount[1] *= (y_mouse / self.HEIGHT) * centre_multiplier
+                    move_amount[0] *= x_mouse / self.WIDTH
+                    move_amount[1] *= y_mouse / self.HEIGHT
                 
                 
             self.cam.move(*move_amount)
