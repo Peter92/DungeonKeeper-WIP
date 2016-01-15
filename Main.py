@@ -82,6 +82,7 @@ class MainGame(object):
     TICKS = 120
 
     def recalculate(self):
+        """Update all tiles with new screen dimensions."""
         overflow = 2 #How many extra blocks to draw around screen
         try:
             self.frame_data['Redraw'] = True
@@ -203,7 +204,7 @@ class MainGame(object):
                     pygame.display.set_caption('{} {}'.format(game_time.fps, self.cam))
                     
                 if self.frame_data['Redraw']:
-                    #self.screen.fill((0, 0, 0))
+                    self.screen.fill((0, 0, 0))
                     self._world_draw()
                     pygame.display.flip()
     
@@ -245,7 +246,13 @@ class MainGame(object):
             if cam_up or cam_down or cam_left or cam_right:
                 self.cam.move(cam_left + cam_right, cam_up + cam_down, num_ticks)
                 recalculate = True
-            
+        
+        
+        zoom = False
+        zoom_speed = self.tilesize // 10 + 1
+        old_width = self.WIDTH / self.tilesize
+        old_height = self.HEIGHT / self.tilesize
+        
         for event in self.frame_data['Events']:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
@@ -256,7 +263,58 @@ class MainGame(object):
                         self.game_data.BLOCK_TAG.add(tile_coordinates)
                     del self.screen_block_data[tile_coordinates]
                     recalculate = True
+                
+                #Increase zoom
+                if event.button == 4:
+                    zoom = 1
+                
+                #Decrease zoom
+                if event.button == 5:
+                    zoom = -1
+        
+        extend_edges = True
+        if zoom:
+            self.tilesize += zoom_speed * zoom
+            self.tilesize = round(max(self.TILE_MIN_SIZE, min(self.tilesize, self.TILE_MAX_SIZE)))
+            
+            new_width = self.WIDTH / self.tilesize
+            new_height = self.HEIGHT / self.tilesize
+            move_amount = [old_width - new_width, old_height - new_height]
+            
+            #Control camera movement while zooming
+            if self.frame_data['MousePos']:
+            
+                x_mouse = self.frame_data['MousePos'][0]
+                y_mouse = self.frame_data['MousePos'][1]
+                
+                #Multiply the mouse so that zooming at the edge will move outwards
+                if extend_edges:
+                    amount = 0.1
                     
+                    x_mult = (x_mouse / self.WIDTH)
+                    if x_mult < 0.5:
+                        x_mult2 = 1 - x_mult * 2
+                        x_mouse -= amount * x_mult2 * self.WIDTH
+                    elif x_mult > 0.5:
+                        x_mult2 = (x_mult - 0.5) * 2
+                        x_mouse += amount * x_mult2 * self.WIDTH
+                        
+                    y_mult = (y_mouse / self.HEIGHT)
+                    if x_mult < 0.5:
+                        y_mult2 = 1 - y_mult * 2
+                        y_mouse -= amount * y_mult2 * self.HEIGHT
+                    elif y_mult > 0.5:
+                        y_mult2 = (y_mult - 0.5) * 2
+                        y_mouse += amount * y_mult2 * self.HEIGHT
+                        
+                
+                centre_multiplier = 8 #Don't understand why this needs to be 8 but it works
+                move_amount[0] *= (x_mouse / self.WIDTH) * centre_multiplier
+                move_amount[1] *= (y_mouse / self.HEIGHT) * centre_multiplier
+                
+                
+                self.cam.move(*move_amount)
+                recalculate = True
             
         if recalculate:
             self.recalculate()
